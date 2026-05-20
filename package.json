@@ -1,0 +1,23 @@
+{
+  "name": "safeescrow-algo",
+  "version": "1.0.0",
+  "description": "Reversible time-locked escrow with community dispute resolution on Algorand",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "compile-contract": "python3 contracts/escrow.py"
+  },
+  "dependencies": {
+    "algosdk": "^2.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "pyteal": "comment: install via pip: pip install pyteal"
+  },
+  "keywords": ["algorand", "escrow", "defi", "blockchain", "algo"],
+  "license": "MIT"
+}

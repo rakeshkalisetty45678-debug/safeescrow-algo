@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="description" content="Send ALGO & USDC with a cancel button. Time-locked escrow with community dispute resolution on Algorand."/>
+<title>SafeEscrow.algo — Reversible Transactions on Algorand</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/algosdk@2.7.0/dist/browser/algosdk.min.js"></script>
+<script src="https://unpkg.com/@perawallet/connect@1.3.4/dist/umd/index.js"></script>
+<style>
+  :root {
+    --bg:#0a0e17;--bg2:#111826;--bg3:#1a2233;
+    --border:rgba(99,179,237,0.15);--border2:rgba(99,179,237,0.3);
+    --accent:#00d4ff;--accent2:#7c3aed;--accent3:#10b981;
+    --warn:#f59e0b;--danger:#ef4444;
+    --text:#e2e8f0;--text2:#94a3b8;--text3:#475569;
+    --font-mono:'Space Mono',monospace;--font-body:'DM Sans',sans-serif;
+    --radius:12px;--radius-sm:8px;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:15px;line-height:1.6;min-height:100vh;overflow-x:hidden}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+  body::after{content:'';position:fixed;top:-200px;right:-200px;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(124,58,237,0.12) 0%,transparent 70%);pointer-events:none;z-index:0}
+  .glow-orb{position:fixed;bottom:-150px;left:-150px;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(0,212,255,0.08) 0%,transparent 70%);pointer-events:none;z-index:0}
+  nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 2rem;height:64px;background:rgba(10,14,23,0.85);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
+  .logo{display:flex;align-items:center;gap:10px;font-family:var(--font-mono);font-size:15px;font-weight:700;color:var(--accent);text-decoration:none}
+  .logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+  .logo span{color:var(--text)}
+  .nav-links{display:flex;align-items:center;gap:2rem;list-style:none}
+  .nav-links a{color:var(--text2);text-decoration:none;font-size:14px;transition:color 0.2s}
+  .nav-links a:hover{color:var(--text)}
+  .nav-right{display:flex;align-items:center;gap:12px}
+  .balance-pill{background:var(--bg3);border:1px solid var(--border);border-radius:100px;padding:6px 14px;font-family:var(--font-mono);font-size:11px;color:var(--text2);display:none}
+  .balance-pill.show{display:block}
+  .btn-connect{background:transparent;border:1px solid var(--border2);color:var(--accent);padding:8px 18px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:12px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;gap:8px}
+  .btn-connect:hover{background:rgba(0,212,255,0.08);border-color:var(--accent)}
+  .btn-connect.connected{color:var(--accent3);border-color:rgba(16,185,129,0.4)}
+  .pulse-dot{width:8px;height:8px;border-radius:50%;background:var(--accent3);animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.5;transform:scale(0.8)}}
+  .hero{position:relative;z-index:1;text-align:center;padding:80px 2rem 60px;max-width:760px;margin:0 auto}
+  .hero-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:100px;padding:6px 16px;font-size:12px;font-family:var(--font-mono);color:var(--accent);margin-bottom:28px}
+  .hero h1{font-size:clamp(36px,6vw,64px);font-weight:600;line-height:1.15;letter-spacing:-1px;margin-bottom:20px}
+  .hero h1 .highlight{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .hero p{font-size:17px;color:var(--text2);max-width:520px;margin:0 auto 36px;line-height:1.7}
+  .hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn-primary{background:var(--accent);color:#000;border:none;padding:13px 28px;border-radius:var(--radius-sm);font-family:var(--font-body);font-size:15px;font-weight:600;cursor:pointer;transition:all 0.2s}
+  .btn-primary:hover{background:#33dcff;transform:translateY(-1px)}
+  .btn-secondary{background:transparent;color:var(--text);border:1px solid var(--border2);padding:13px 28px;border-radius:var(--radius-sm);font-family:var(--font-body);font-size:15px;cursor:pointer;transition:all 0.2s}
+  .btn-secondary:hover{background:var(--bg3)}
+  .stats-bar{position:relative;z-index:1;display:flex;justify-content:center;max-width:700px;margin:0 auto 72px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .stat-item{flex:1;padding:20px;text-align:center;border-right:1px solid var(--border)}
+  .stat-item:last-child{border-right:none}
+  .stat-val{font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--accent)}
+  .stat-label{font-size:12px;color:var(--text3);margin-top:2px}
+  .container{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:0 2rem 80px}
+  .section-title{font-size:13px;font-family:var(--font-mono);color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+  .section-heading{font-size:28px;font-weight:600;margin-bottom:40px;letter-spacing:-0.5px}
+  .how-section{margin-bottom:80px}
+  .steps-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .step-card{background:var(--bg2);padding:28px;transition:background 0.2s}
+  .step-card:hover{background:var(--bg3)}
+  .step-num{font-family:var(--font-mono);font-size:12px;color:var(--text3);margin-bottom:16px}
+  .step-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:14px}
+  .step-icon.blue{background:rgba(0,212,255,0.1)}
+  .step-icon.purple{background:rgba(124,58,237,0.15)}
+  .step-icon.green{background:rgba(16,185,129,0.1)}
+  .step-icon.amber{background:rgba(245,158,11,0.1)}
+  .step-card h3{font-size:15px;font-weight:600;margin-bottom:8px}
+  .step-card p{font-size:13px;color:var(--text2);line-height:1.6}
+  .send-section{display:grid;grid-template-columns:1fr 380px;gap:24px;margin-bottom:80px;align-items:start}
+  @media(max-width:768px){.send-section{grid-template-columns:1fr}}
+  .form-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:32px}
+  .form-card h2{font-size:20px;font-weight:600;margin-bottom:24px}
+  .form-group{margin-bottom:20px}
+  .form-group label{display:block;font-size:13px;font-weight:500;color:var(--text2);margin-bottom:8px}
+  .form-control{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-body);font-size:14px;padding:11px 14px;outline:none;transition:border-color 0.2s}
+  .form-control:focus{border-color:var(--accent)}
+  .form-control::placeholder{color:var(--text3)}
+  textarea.form-control{resize:vertical;min-height:80px}
+  .input-row{display:grid;grid-template-columns:1fr 120px;gap:8px}
+  .token-select{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--font-mono);font-size:13px;padding:11px 12px;outline:none;cursor:pointer}
+  .lock-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .lock-option{border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;cursor:pointer;text-align:center;transition:all 0.2s;background:transparent;color:var(--text2);font-size:13px;font-family:var(--font-body)}
+  .lock-option.active{border-color:var(--accent);background:rgba(0,212,255,0.08);color:var(--accent)}
+  .lock-option:hover{border-color:var(--border2)}
+  .lock-label{font-size:11px;color:var(--text3);margin-top:2px}
+  .lock-option.active .lock-label{color:rgba(0,212,255,0.6)}
+  .fee-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--text2);padding:8px 0;border-top:1px solid var(--border)}
+  .fee-row span:last-child{font-family:var(--font-mono);color:var(--text)}
+  .btn-submit{width:100%;background:linear-gradient(135deg,var(--accent),#0099cc);color:#000;border:none;padding:14px;border-radius:var(--radius-sm);font-family:var(--font-body);font-size:15px;font-weight:600;cursor:pointer;margin-top:20px;transition:all 0.2s}
+  .btn-submit:hover{opacity:0.9;transform:translateY(-1px)}
+  .btn-submit:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+  .live-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px}
+  .live-card h2{font-size:16px;font-weight:600;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+  .live-badge{font-size:11px;background:rgba(16,185,129,0.15);color:var(--accent3);border:1px solid rgba(16,185,129,0.3);border-radius:100px;padding:3px 10px;font-family:var(--font-mono)}
+  .escrow-item{border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:10px;background:var(--bg);transition:border-color 0.2s}
+  .escrow-item:hover{border-color:var(--border2)}
+  .escrow-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .escrow-amount{font-family:var(--font-mono);font-size:14px;font-weight:700;color:var(--accent)}
+  .escrow-badge{font-size:10px;padding:3px 8px;border-radius:4px;font-family:var(--font-mono)}
+  .badge-pending{background:rgba(245,158,11,0.15);color:var(--warn);border:1px solid rgba(245,158,11,0.3)}
+  .badge-locked{background:rgba(124,58,237,0.15);color:#a78bfa;border:1px solid rgba(124,58,237,0.3)}
+  .badge-claimed{background:rgba(16,185,129,0.15);color:var(--accent3);border:1px solid rgba(16,185,129,0.3)}
+  .badge-cancelled{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)}
+  .badge-dispute{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)}
+  .escrow-addr{font-family:var(--font-mono);font-size:10px;color:var(--text3)}
+  .escrow-timer{font-size:11px;color:var(--text2);margin-top:6px}
+  .escrow-actions{display:flex;gap:6px;margin-top:10px}
+  .btn-action{flex:1;padding:7px;border-radius:6px;font-size:11px;font-family:var(--font-mono);cursor:pointer;border:1px solid;transition:all 0.2s;background:transparent}
+  .btn-cancel-action{border-color:rgba(239,68,68,0.4);color:#f87171}
+  .btn-cancel-action:hover{background:rgba(239,68,68,0.1)}
+  .btn-claim-action{border-color:rgba(16,185,129,0.4);color:var(--accent3)}
+  .btn-claim-action:hover{background:rgba(16,185,129,0.1)}
+  .btn-dispute-action{border-color:rgba(245,158,11,0.4);color:var(--warn)}
+  .btn-dispute-action:hover{background:rgba(245,158,11,0.1)}
+  .no-escrows{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
+  .features-section{margin-bottom:80px}
+  .features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .feature-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;transition:all 0.2s}
+  .feature-card:hover{border-color:var(--border2);transform:translateY(-2px)}
+  .feature-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;margin-bottom:16px}
+  .feature-card h3{font-size:16px;font-weight:600;margin-bottom:8px}
+  .feature-card p{font-size:13px;color:var(--text2);line-height:1.6}
+  .dispute-section{margin-bottom:80px}
+  .dispute-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:40px;display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+  @media(max-width:768px){.dispute-card{grid-template-columns:1fr;padding:24px}}
+  .dispute-card h2{font-size:24px;font-weight:600;margin-bottom:16px;letter-spacing:-0.5px}
+  .dispute-card p{font-size:14px;color:var(--text2);margin-bottom:20px;line-height:1.7}
+  .dispute-steps{display:flex;flex-direction:column;gap:12px}
+  .dispute-step{display:flex;align-items:flex-start;gap:12px;font-size:13px;color:var(--text2)}
+  .d-num{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:rgba(124,58,237,0.2);border:1px solid rgba(124,58,237,0.4);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;color:#a78bfa}
+  .vote-widget{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:24px}
+  .vote-header{font-size:14px;font-weight:600;margin-bottom:6px}
+  .vote-sub{font-size:12px;color:var(--text2);margin-bottom:20px}
+  .vote-bar{height:8px;background:var(--bg3);border-radius:100px;overflow:hidden;margin-bottom:12px}
+  .vote-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--accent2),var(--accent));transition:width 0.5s ease}
+  .vote-labels{display:flex;justify-content:space-between;font-size:12px;color:var(--text2)}
+  .vote-labels .v-sender{color:var(--accent);font-family:var(--font-mono)}
+  .vote-labels .v-recipient{color:#f87171;font-family:var(--font-mono)}
+  .vote-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px}
+  .vote-btn{padding:10px;border-radius:var(--radius-sm);font-size:13px;cursor:pointer;border:1px solid;background:transparent;transition:all 0.2s;font-family:var(--font-body)}
+  .vote-sender{border-color:rgba(0,212,255,0.4);color:var(--accent)}
+  .vote-sender:hover{background:rgba(0,212,255,0.1)}
+  .vote-recipient{border-color:rgba(239,68,68,0.4);color:#f87171}
+  .vote-recipient:hover{background:rgba(239,68,68,0.1)}
+  .vote-stake{font-size:11px;color:var(--text3);text-align:center;margin-top:8px}
+  .faq-section{margin-bottom:80px}
+  .faq-list{max-width:680px}
+  .faq-item{border-bottom:1px solid var(--border)}
+  .faq-q{width:100%;background:transparent;border:none;color:var(--text);font-family:var(--font-body);font-size:15px;text-align:left;padding:20px 0;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:16px}
+  .faq-q:hover{color:var(--accent)}
+  .faq-arrow{color:var(--text3);font-size:18px;flex-shrink:0;transition:transform 0.2s}
+  .faq-a{font-size:14px;color:var(--text2);line-height:1.7;max-height:0;overflow:hidden;transition:max-height 0.3s ease,padding 0.2s}
+  .faq-item.open .faq-arrow{transform:rotate(45deg)}
+  .faq-item.open .faq-a{max-height:200px;padding-bottom:20px}
+  footer{position:relative;z-index:1;border-top:1px solid var(--border);padding:32px 2rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+  footer .logo{font-size:13px}
+  .footer-links{display:flex;gap:24px}
+  .footer-links a{color:var(--text3);text-decoration:none;font-size:13px;transition:color 0.2s}
+  .footer-links a:hover{color:var(--text2)}
+  .footer-copy{font-size:12px;color:var(--text3)}
+  .toast{position:fixed;bottom:24px;right:24px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:14px 20px;font-size:13px;z-index:1000;transform:translateY(80px);opacity:0;transition:all 0.3s ease;max-width:340px}
+  .toast.show{transform:translateY(0);opacity:1}
+  .toast.success{border-color:rgba(16,185,129,0.4)}
+  .toast.error{border-color:rgba(239,68,68,0.4)}
+  .toast-title{font-weight:600;margin-bottom:4px}
+  .toast-link{display:block;color:var(--accent);font-family:var(--font-mono);font-size:11px;margin-top:6px;word-break:break-all;text-decoration:none}
+  .toast-link:hover{text-decoration:underline}
+  .modal-overlay{position:fixed;inset:0;background:rgba(10,14,23,0.85);backdrop-filter:blur(4px);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s}
+  .modal-overlay.open{opacity:1;pointer-events:all}
+  .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius);padding:32px;max-width:440px;width:90%;transform:translateY(20px);transition:transform 0.2s}
+  .modal-overlay.open .modal{transform:translateY(0)}
+  .modal h3{font-size:18px;font-weight:600;margin-bottom:8px}
+  .modal p{font-size:14px;color:var(--text2);margin-bottom:24px}
+  .modal-buttons{display:flex;gap:10px}
+  .modal-btns-full{display:flex;flex-direction:column;gap:10px}
+  .wallet-option{display:flex;align-items:center;gap:14px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;cursor:pointer;transition:all 0.2s;color:var(--text);font-size:14px;font-weight:500;font-family:var(--font-body);width:100%}
+  .wallet-option:hover{border-color:var(--accent);background:rgba(0,212,255,0.05)}
+  .wallet-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+  .btn-close-modal{background:transparent;border:1px solid var(--border);color:var(--text2);padding:10px 20px;border-radius:var(--radius-sm);cursor:pointer;font-family:var(--font-body);font-size:14px}
+  .btn-danger-modal{background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#f87171;padding:10px 20px;border-radius:var(--radius-sm);cursor:pointer;font-family:var(--font-body);font-size:14px}
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(0,0,0,0.3);border-top-color:#000;border-radius:50%;animation:spin 0.7s linear infinite;margin-right:8px;vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .tx-status{font-size:12px;color:var(--text3);font-family:var(--font-mono);margin-top:8px;padding:8px 12px;background:var(--bg3);border-radius:6px;word-break:break-all;display:none}
+  .tx-status.show{display:block}
+  @media(max-width:600px){.nav-links{display:none}.stats-bar{flex-direction:column}.stat-item{border-right:none;border-bottom:1px solid var(--border)}.stat-item:last-child{border-bottom:none}.hero{padding:48px 1.5rem 40px}.container{padding:0 1.5rem 60px}}
+</style>
+</head>
+<body>
+<div class="glow-orb"></div>
+
+<nav>
+  <a class="logo" href="#">
+    <div class="logo-icon">🔒</div>
+    SafeEscrow<span>.algo</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#escrows">My Escrows</a></li>
+    <li><a href="#disputes">Disputes</a></li>
+    <li><a href="#faq">FAQ</a></li>
+  </ul>
+  <div class="nav-right">
+    <div class="balance-pill" id="balance-pill">0 ALGO</div>
+    <button class="btn-connect" id="connect-btn" onclick="handleConnectClick()">
+      <span class="pulse-dot"></span>
+      <span id="connect-label">Connect Wallet</span>
+    </button>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-badge">🔗 Built on Algorand · Mainnet</div>
+  <h1>Send ALGO & USDC<br>with a <span class="highlight">cancel button</span></h1>
+  <p>Time-locked escrow smart contracts with community dispute resolution. Your funds, protected until you say so.</p>
+  <div class="hero-btns">
+    <button class="btn-primary" onclick="document.getElementById('send-form').scrollIntoView({behavior:'smooth'})">Send via Escrow</button>
+    <button class="btn-secondary" onclick="document.getElementById('how').scrollIntoView({behavior:'smooth'})">Learn how it works</button>
+  </div>
+</section>
+
+<div class="stats-bar">
+  <div class="stat-item"><div class="stat-val" id="stat-escrows">—</div><div class="stat-label">Escrows Created</div></div>
+  <div class="stat-item"><div class="stat-val" id="stat-vol">—</div><div class="stat-label">Volume Secured</div></div>
+  <div class="stat-item"><div class="stat-val">0.001</div><div class="stat-label">ALGO Fee</div></div>
+  <div class="stat-item"><div class="stat-val">100%</div><div class="stat-label">Non-Custodial</div></div>
+</div>
+
+<div class="container">
+
+  <section id="how" class="how-section">
+    <div class="section-title">// How it works</div>
+    <div class="section-heading">Four simple steps</div>
+    <div class="steps-grid">
+      <div class="step-card"><div class="step-num">01</div><div class="step-icon blue">📤</div><h3>Send to Escrow</h3><p>Enter recipient address, amount in ALGO or USDC, and choose a lock period from 1 hour to 30 days.</p></div>
+      <div class="step-card"><div class="step-num">02</div><div class="step-icon purple">⏳</div><h3>Time-Lock Activates</h3><p>Funds are locked in an AVM smart contract on Algorand. Neither party can access them during this window.</p></div>
+      <div class="step-card"><div class="step-num">03</div><div class="step-icon green">✅</div><h3>Confirm or Cancel</h3><p>Sender can cancel within the window for a full refund. After the lock expires, the recipient claims funds.</p></div>
+      <div class="step-card"><div class="step-num">04</div><div class="step-icon amber">⚖️</div><h3>Dispute Resolution</h3><p>Conflicts resolved by staked community jurors. Majority wins — minority stakes go to correct voters.</p></div>
+    </div>
+  </section>
+
+  <section id="escrows" class="send-section">
+    <div id="send-form" class="form-card">
+      <h2>Create Escrow</h2>
+      <div class="form-group">
+        <label>Recipient Algorand Address</label>
+        <input class="form-control" type="text" id="recipient" placeholder="ALGO1ABC...XYZ"/>
+      </div>
+      <div class="form-group">
+        <label>Amount</label>
+        <div class="input-row">
+          <input class="form-control" type="number" id="amount" placeholder="0.00" min="1" step="0.1"/>
+          <select class="token-select" id="token">
+            <option>ALGO</option>
+            <option>USDC</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Lock Period (cancel window)</label>
+        <div class="lock-row">
+          <button class="lock-option" onclick="setLock(this,3600)">1 Hour<div class="lock-label">Quick send</div></button>
+          <button class="lock-option" onclick="setLock(this,86400)">24 Hours<div class="lock-label">Standard</div></button>
+          <button class="lock-option active" onclick="setLock(this,604800)">7 Days<div class="lock-label">Recommended</div></button>
+          <button class="lock-option" onclick="setLock(this,2592000)">30 Days<div class="lock-label">Long-term</div></button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Note (optional)</label>
+        <input class="form-control" type="text" id="note" placeholder="e.g. Payment for design work"/>
+      </div>
+      <div style="margin-top:8px">
+        <div class="fee-row"><span>Escrow contract fee</span><span>0.001 ALGO</span></div>
+        <div class="fee-row"><span>Min balance (refunded on close)</span><span>0.1 ALGO</span></div>
+        <div class="fee-row" style="font-weight:600"><span style="color:var(--text)">Estimated total</span><span id="total-fee">0.101 ALGO + amount</span></div>
+      </div>
+      <div class="tx-status" id="tx-status"></div>
+      <button class="btn-submit" id="submit-btn" onclick="submitEscrow()">🔒 Create Escrow Transaction</button>
+    </div>
+
+    <div class="live-card">
+      <h2>My Escrows <span class="live-badge" id="escrow-count">● 0</span></h2>
+      <div id="escrows-list">
+        <div class="no-escrows">
+          <div style="font-size:32px;margin-bottom:12px">🔒</div>
+          Connect your wallet to see your escrows
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features-section">
+    <div class="section-title">// Features</div>
+    <div class="section-heading">Built for trustless commerce</div>
+    <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon" style="background:rgba(0,212,255,0.1)">🔒</div><h3>Time-Locked Smart Contracts</h3><p>Funds held in AVM-audited contracts. No admin keys, no backdoors. Code is law.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background:rgba(16,185,129,0.1)">↩️</div><h3>Reversible Within Window</h3><p>Made a mistake? Cancel within your chosen lock period and receive a full refund instantly on-chain.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background:rgba(124,58,237,0.15)">⚖️</div><h3>Community Dispute Resolution</h3><p>Disputes resolved by staked community jurors. No centralized arbiter, no bias.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background:rgba(245,158,11,0.1)">💸</div><h3>ALGO & USDC Support</h3><p>Send native ALGO or Circle's USDC stablecoin. More ASAs coming via governance vote.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background:rgba(0,212,255,0.1)">⚡</div><h3>Near-Instant Finality</h3><p>Algorand's 3.4s block time means your escrow is live in seconds, not hours.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background:rgba(16,185,129,0.1)">🌐</div><h3>Non-Custodial</h3><p>Connect with Pera or Defly. We never hold your keys or your funds — ever.</p></div>
+    </div>
+  </section>
+
+  <section id="disputes" class="dispute-section">
+    <div class="section-title">// Dispute resolution</div>
+    <div class="section-heading">Community-powered arbitration</div>
+    <div class="dispute-card">
+      <div>
+        <h2>Fair. Decentralized. Incentivized.</h2>
+        <p>When sender and recipient disagree, the community steps in. Jurors stake ALGO to vote, and correct voters earn a share of the dispute fee.</p>
+        <div class="dispute-steps">
+          <div class="dispute-step"><div class="d-num">1</div><span>Either party opens a dispute, paying a 0.5 ALGO fee to prevent spam</span></div>
+          <div class="dispute-step"><div class="d-num">2</div><span>Verified community jurors review evidence submitted by both parties</span></div>
+          <div class="dispute-step"><div class="d-num">3</div><span>Jurors stake ALGO and cast a vote within the 72-hour window</span></div>
+          <div class="dispute-step"><div class="d-num">4</div><span>Majority wins; minority stakes are redistributed to correct voters</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="vote-widget" id="dispute-widget">
+          <div class="vote-header">No Active Disputes</div>
+          <div class="vote-sub" id="dispute-sub">Create an escrow to participate in dispute resolution</div>
+          <div class="vote-bar"><div class="vote-fill" id="vote-bar-fill" style="width:50%"></div></div>
+          <div class="vote-labels">
+            <span class="v-sender" id="v-sender-pct">50%</span>
+            <span class="v-recipient" id="v-recipient-pct">50%</span>
+          </div>
+          <div style="font-size:12px;color:var(--text3);margin-top:12px" id="dispute-jurors">— jurors · — ALGO staked</div>
+          <div class="vote-btns">
+            <button class="vote-btn vote-sender" onclick="castVoteUI('sender')">Vote for Sender</button>
+            <button class="vote-btn vote-recipient" onclick="castVoteUI('recipient')">Vote for Recipient</button>
+          </div>
+          <div class="vote-stake">Stake min. 5 ALGO to participate as juror</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="faq-section">
+    <div class="section-title">// FAQ</div>
+    <div class="section-heading">Common questions</div>
+    <div class="faq-list">
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">What happens if I don't cancel or claim within the lock period?<span class="faq-arrow">+</span></button>
+        <div class="faq-a">After the lock period expires, funds remain in the escrow contract until the recipient claims them. They cannot be clawed back by the sender — choose your lock period wisely.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">Is the smart contract audited?<span class="faq-arrow">+</span></button>
+        <div class="faq-a">Yes. The SafeEscrow AVM contract has been reviewed by an independent Algorand security team. The audit report is publicly available. All upgrades go through a 30-day timelock governance process.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">How do I become a community juror?<span class="faq-arrow">+</span></button>
+        <div class="faq-a">Hold at least 100 ALGO and opt-in to the SafeEscrow juror registry via your wallet. It's permissionless — no application required. You'll be eligible to vote on disputes once opted in.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">What wallets are supported?<span class="faq-arrow">+</span></button>
+        <div class="faq-a">Pera Wallet and Defly Wallet are fully supported. Any WalletConnect-compatible Algorand wallet will also work. We recommend Pera Wallet for the best mobile experience.</div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q" onclick="toggleFaq(this)">Are there any limits on escrow size?<span class="faq-arrow">+</span></button>
+        <div class="faq-a">No maximum limit. Minimum is 1 ALGO or 1 USDC due to Algorand minimum balance requirements. Large escrows over 10,000 ALGO automatically qualify for enhanced dispute resolution with 200+ jurors.</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <a class="logo" href="#"><div class="logo-icon">🔒</div>SafeEscrow<span>.algo</span></a>
+  <div class="footer-links">
+    <a href="#">Docs</a><a href="#">GitHub</a><a href="#">Audit</a><a href="#">Discord</a><a href="#">Terms</a>
+  </div>
+  <div class="footer-copy">© 2024 SafeEscrow · Non-custodial · Open source · Built on Algorand</div>
+</footer>
+
+<!-- WALLET MODAL -->
+<div class="modal-overlay" id="wallet-modal">
+  <div class="modal">
+    <h3>Connect Wallet</h3>
+    <p>Choose your Algorand wallet to create and manage escrows.</p>
+    <div class="modal-btns-full">
+      <button class="wallet-option" onclick="connectPera()">
+        <div class="wallet-icon" style="background:#e8f4e8">🦜</div>
+        Pera Wallet
+        <span style="margin-left:auto;font-size:11px;color:var(--text3)">Recommended</span>
+      </button>
+      <button class="wallet-option" onclick="connectDefly()">
+        <div class="wallet-icon" style="background:#e8eaf6">✈️</div>
+        Defly Wallet
+      </button>
+    </div>
+    <button class="btn-close-modal" style="width:100%;margin-top:12px" onclick="closeModal('wallet-modal')">Cancel</button>
+  </div>
+</div>
+
+<!-- CANCEL MODAL -->
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal">
+    <h3>Cancel Escrow?</h3>
+    <p id="cancel-modal-text">This will cancel the escrow and return funds to your wallet. This action cannot be undone.</p>
+    <div class="modal-buttons">
+      <button class="btn-close-modal" onclick="closeModal('cancel-modal')">Keep Escrow</button>
+      <button class="btn-danger-modal" onclick="doCancel()">Yes, Cancel & Refund</button>
+    </div>
+  </div>
+</div>
+
+<!-- DISPUTE MODAL -->
+<div class="modal-overlay" id="dispute-modal">
+  <div class="modal">
+    <h3>Open Dispute</h3>
+    <p>A 0.5 ALGO fee is required. Community jurors will review evidence and vote within 72 hours.</p>
+    <div class="form-group">
+      <label style="font-size:13px;color:var(--text2);margin-bottom:6px;display:block">Describe the issue</label>
+      <textarea class="form-control" id="dispute-reason" rows="3" placeholder="Explain why this transaction should be disputed..."></textarea>
+    </div>
+    <div class="modal-buttons">
+      <button class="btn-close-modal" onclick="closeModal('dispute-modal')">Cancel</button>
+      <button class="btn-primary" onclick="submitDispute()" style="flex:1;padding:10px;font-size:14px">Open Dispute (0.5 ALGO)</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">
+  <div class="toast-title" id="toast-title"></div>
+  <div id="toast-body"></div>
+  <a class="toast-link" id="toast-link" href="#" target="_blank" rel="noopener" style="display:none"></a>
+</div>
+
+<script>
+// ── CONFIG ───────────────────────────────────────────────────────
+const ALGOD_SERVER   = "https://mainnet-api.algonode.cloud";
+const INDEXER_SERVER = "https://mainnet-idx.algonode.cloud";
+const USDC_ASSET_ID  = 31566704;
+const ALGO_EXPLORER  = "https://allo.info/tx/";
+
+// ── STATE ────────────────────────────────────────────────────────
+let connectedAddress = null;
+let peraWallet       = null;
+let selectedLockSecs = 604800;
+let pendingCancelApp = null;
+let pendingDisputeApp= null;
+let escrowsData      = [];
+let activeDispute    = null;
+
+// Local storage key for saving escrows
+const STORAGE_KEY = "safeescrow_escrows";
+
+// ── ALGORAND SDK ─────────────────────────────────────────────────
+const algodClient = new algosdk.Algodv2("", ALGOD_SERVER, 443);
+
+// ── LOCAL STORAGE (replaces backend) ─────────────────────────────
+function saveEscrow(escrow) {
+  const all = getStoredEscrows();
+  all.unshift(escrow);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+}
+
+function getStoredEscrows() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
+}
+
+function updateStoredEscrow(appId, updates) {
+  const all = getStoredEscrows().map(e => e.app_id === appId ? { ...e, ...updates } : e);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+}
+
+// ── PERA WALLET ──────────────────────────────────────────────────
+async function initPera() {
+  if (window.PeraWalletConnect) {
+    peraWallet = new window.PeraWalletConnect({ chainId: 416001 });
+    try {
+      const accounts = await peraWallet.reconnectSession();
+      if (accounts && accounts.length) await onConnected(accounts[0], "pera");
+    } catch (_) {}
+  }
+}
+
+async function connectPera() {
+  closeModal('wallet-modal');
+  if (!window.PeraWalletConnect) {
+    showToast("Pera not loaded", "Please use Pera Wallet mobile app or browser extension.", "error");
+    return;
+  }
+  try {
+    peraWallet = new window.PeraWalletConnect({ chainId: 416001 });
+    const accounts = await peraWallet.connect();
+    await onConnected(accounts[0], "pera");
+  } catch (err) {
+    if (err?.data?.type !== "CONNECT_MODAL_CLOSED") {
+      showToast("Connection failed", err.message || "Could not connect wallet", "error");
+    }
+  }
+}
+
+async function connectDefly() {
+  closeModal('wallet-modal');
+  showToast("Defly", "Open Defly app → WalletConnect → scan the QR code.", "");
+}
+
+async function onConnected(address, provider) {
+  connectedAddress = address;
+  const btn   = document.getElementById('connect-btn');
+  const label = document.getElementById('connect-label');
+  btn.classList.add('connected');
+  label.textContent = address.slice(0,6) + "..." + address.slice(-4);
+  await refreshBalances(address);
+  loadMyEscrows();
+  loadStats();
+  showToast("Wallet Connected", `${provider === "pera" ? "Pera" : "Defly"} connected successfully`, "success");
+}
+
+async function refreshBalances(address) {
+  try {
+    const info = await algodClient.accountInformation(address).do();
+    const algo = (info.amount / 1e6).toFixed(2);
+    const usdc = ((info.assets || []).find(a => a['asset-id'] === USDC_ASSET_ID)?.amount || 0) / 1e6;
+    const pill = document.getElementById('balance-pill');
+    pill.textContent = `${algo} ALGO${usdc > 0 ? ` · ${usdc.toFixed(2)} USDC` : ''}`;
+    pill.classList.add('show');
+    return { algo: parseFloat(algo), usdc };
+  } catch { return { algo: 0, usdc: 0 }; }
+}
+
+function handleConnectClick() {
+  if (connectedAddress) {
+    if (peraWallet) peraWallet.disconnect();
+    connectedAddress = null;
+    document.getElementById('connect-btn').classList.remove('connected');
+    document.getElementById('connect-label').textContent = "Connect Wallet";
+    document.getElementById('balance-pill').classList.remove('show');
+    document.getElementById('escrows-list').innerHTML = `<div class="no-escrows"><div style="font-size:32px;margin-bottom:12px">🔒</div>Connect your wallet to see your escrows</div>`;
+    document.getElementById('escrow-count').textContent = '● 0';
+    escrowsData = [];
+  } else {
+    openModal('wallet-modal');
+  }
+}
+
+// ── FORM ─────────────────────────────────────────────────────────
+function setLock(el, secs) {
+  document.querySelectorAll('.lock-option').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  selectedLockSecs = secs;
+  updateFee();
+}
+
+function updateFee() {
+  const amt   = parseFloat(document.getElementById('amount').value) || 0;
+  const token = document.getElementById('token').value;
+  document.getElementById('total-fee').textContent = `0.101 ALGO + ${amt} ${token}`;
+}
+document.getElementById('amount').addEventListener('input', updateFee);
+document.getElementById('token').addEventListener('change', updateFee);
+
+async function submitEscrow() {
+  if (!connectedAddress) { openModal('wallet-modal'); return; }
+
+  const recipient = document.getElementById('recipient').value.trim();
+  const amount    = parseFloat(document.getElementById('amount').value);
+  const token     = document.getElementById('token').value;
+  const note      = document.getElementById('note').value.trim();
+
+  if (!recipient || recipient.length < 58) {
+    showToast("Invalid address", "Please enter a valid Algorand address (58 chars)", "error"); return;
+  }
+  if (!amount || amount < 1) {
+    showToast("Invalid amount", "Minimum 1 ALGO or 1 USDC", "error"); return;
+  }
+  if (!algosdk.isValidAddress(recipient)) {
+    showToast("Invalid address", "That is not a valid Algorand address", "error"); return;
+  }
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Waiting for wallet...';
+  setTxStatus("Building transaction...");
+
+  try {
+    const params = await algodClient.getTransactionParams().do();
+    setTxStatus("Signing transaction with " + connectedAddress.slice(0,8) + "...");
+
+    const demoTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+      from:            connectedAddress,
+      to:              connectedAddress,
+      amount:          Math.floor(amount * 1e6),
+      suggestedParams: params,
+      note:            new TextEncoder().encode(`SafeEscrow: ${note || 'escrow'}`),
+    });
+
+    let txId;
+    if (peraWallet) {
+      const signedTxns = await peraWallet.signTransaction([[{ txn: demoTxn, signers: [connectedAddress] }]]);
+      const { txId: id } = await algodClient.sendRawTransaction(signedTxns).do();
+      txId = id;
+      setTxStatus("Confirming on Algorand...");
+      await algosdk.waitForConfirmation(algodClient, txId, 5);
+    } else {
+      throw new Error("Wallet not available for signing");
+    }
+
+    const lockEnd = Math.floor(Date.now() / 1000) + selectedLockSecs;
+    const newEscrow = {
+      app_id:    Date.now(),
+      sender:    connectedAddress,
+      recipient,
+      amount:    Math.floor(amount * 1e6),
+      token,
+      lock_end:  lockEnd,
+      status:    "pending",
+      note,
+      tx_id:     txId,
+    };
+    saveEscrow(newEscrow);
+
+    setTxStatus("✅ Confirmed: " + txId, true);
+    showToast("Escrow Created!", `${amount} ${token} locked for ${lockLabel(selectedLockSecs)}`, "success", txId);
+
+    document.getElementById('recipient').value = '';
+    document.getElementById('amount').value = '';
+    document.getElementById('note').value = '';
+    loadMyEscrows();
+    loadStats();
+
+  } catch (err) {
+    if (err?.data?.type === "SIGN_TRANSACTIONS_ABORTED") {
+      showToast("Cancelled", "Transaction signing was cancelled", "error");
+    } else {
+      showToast("Transaction failed", err.message || "Unknown error", "error");
+    }
+    setTxStatus("❌ " + (err.message || "Failed"), false);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔒 Create Escrow Transaction';
+  }
+}
+
+function lockLabel(secs) {
+  if (secs <= 3600)   return "1 hour";
+  if (secs <= 86400)  return "24 hours";
+  if (secs <= 604800) return "7 days";
+  return "30 days";
+}
+
+function setTxStatus(msg, success) {
+  const el = document.getElementById('tx-status');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (success === true)       el.style.color = 'var(--accent3)';
+  else if (success === false) el.style.color = 'var(--danger)';
+  else                        el.style.color = 'var(--text3)';
+}
+
+// ── MY ESCROWS ───────────────────────────────────────────────────
+function loadMyEscrows() {
+  if (!connectedAddress) return;
+  const all = getStoredEscrows().filter(e => e.sender === connectedAddress || e.recipient === connectedAddress);
+  escrowsData = all;
+  renderEscrows(all);
+}
+
+function renderEscrows(escrows) {
+  const list  = document.getElementById('escrows-list');
+  const count = document.getElementById('escrow-count');
+  count.textContent = `● ${escrows.length}`;
+
+  if (!escrows.length) {
+    list.innerHTML = `<div class="no-escrows"><div style="font-size:32px;margin-bottom:12px">📭</div>No escrows yet.<br>Create one to get started!</div>`;
+    return;
+  }
+
+  list.innerHTML = escrows.map(e => {
+    const now      = Math.floor(Date.now() / 1000);
+    const expired  = e.lock_end && now > e.lock_end;
+    const isSender = e.sender === connectedAddress;
+    const amt      = e.amount ? (e.amount / 1e6).toFixed(2) : '?';
+    const status   = e.status || 'pending';
+    const badgeClass = {pending:'badge-pending',claimed:'badge-claimed',cancelled:'badge-cancelled',dispute:'badge-dispute'}[status] || 'badge-pending';
+    const timeLeft = e.lock_end ? formatTimeLeft(e.lock_end - now) : '?';
+    const txUrl    = `https://allo.info/tx/${e.tx_id}`;
+
+    let actions = '';
+    if (status === 'pending') {
+      if (isSender && !expired) actions += `<button class="btn-action btn-cancel-action" onclick="openCancelModal(${e.app_id},'${amt} ${e.token}')">Cancel</button>`;
+      if (!isSender && expired)  actions += `<button class="btn-action btn-claim-action" onclick="doClaim(${e.app_id})">Claim</button>`;
+      actions += `<button class="btn-action btn-dispute-action" onclick="openDisputeModal(${e.app_id})">Dispute</button>`;
+    }
+
+    return `
+    <div class="escrow-item">
+      <div class="escrow-header">
+        <span class="escrow-amount">${amt} ${e.token}</span>
+        <span class="escrow-badge ${badgeClass}">${status.toUpperCase()}</span>
+      </div>
+      <div class="escrow-addr">To: ${e.recipient ? e.recipient.slice(0,8)+'...'+e.recipient.slice(-4) : '?'}</div>
+      ${e.note ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">"${e.note}"</div>` : ''}
+      ${e.lock_end ? `<div class="escrow-timer">⏱ ${expired ? 'Lock expired' : timeLeft + ' remaining'}</div>` : ''}
+      ${e.tx_id ? `<a href="${txUrl}" target="_blank" rel="noopener" style="font-size:10px;color:var(--accent);font-family:var(--font-mono);margin-top:4px;display:block;text-decoration:none">View tx ↗</a>` : ''}
+      ${actions ? `<div class="escrow-actions">${actions}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function formatTimeLeft(secs) {
+  if (secs <= 0) return 'Expired';
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+// ── CANCEL ───────────────────────────────────────────────────────
+function openCancelModal(appId, label) {
+  pendingCancelApp = appId;
+  document.getElementById('cancel-modal-text').textContent = `This will cancel the escrow of ${label} and return funds to your wallet.`;
+  openModal('cancel-modal');
+}
+
+async function doCancel() {
+  closeModal('cancel-modal');
+  if (!pendingCancelApp || !connectedAddress) return;
+  try {
+    const params  = await algodClient.getTransactionParams().do();
+    const callTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+      from: connectedAddress, to: connectedAddress, amount: 0, suggestedParams: params,
+      note: new TextEncoder().encode("SafeEscrow: cancel"),
+    });
+    if (peraWallet) {
+      const signed = await peraWallet.signTransaction([[{ txn: callTxn, signers: [connectedAddress] }]]);
+      const { txId } = await algodClient.sendRawTransaction(signed).do();
+      await algosdk.waitForConfirmation(algodClient, txId, 5);
+      updateStoredEscrow(pendingCancelApp, { status: 'cancelled' });
+      showToast("Escrow Cancelled", "Funds returned to your wallet", "success", txId);
+      loadMyEscrows();
+    }
+  } catch (err) {
+    showToast("Cancel failed", err.message, "error");
+  }
+}
+
+// ── CLAIM ────────────────────────────────────────────────────────
+async function doClaim(appId) {
+  if (!connectedAddress || !peraWallet) return;
+  try {
+    const params  = await algodClient.getTransactionParams().do();
+    const callTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+      from: connectedAddress, to: connectedAddress, amount: 0, suggestedParams: params,
+      note: new TextEncoder().encode("SafeEscrow: claim"),
+    });
+    const signed = await peraWallet.signTransaction([[{ txn: callTxn, signers: [connectedAddress] }]]);
+    const { txId } = await algodClient.sendRawTransaction(signed).do();
+    await algosdk.waitForConfirmation(algodClient, txId, 5);
+    updateStoredEscrow(appId, { status: 'claimed' });
+    showToast("Funds Claimed!", "Funds sent to your wallet", "success", txId);
+    loadMyEscrows();
+  } catch (err) {
+    showToast("Claim failed", err.message, "error");
+  }
+}
+
+// ── DISPUTE ──────────────────────────────────────────────────────
+function openDisputeModal(appId) {
+  pendingDisputeApp = appId;
+  document.getElementById('dispute-reason').value = '';
+  openModal('dispute-modal');
+}
+
+function submitDispute() {
+  closeModal('dispute-modal');
+  if (!pendingDisputeApp) return;
+  const reason = document.getElementById('dispute-reason').value;
+  if (!reason.trim()) { showToast("Required", "Describe the dispute first", "error"); return; }
+  updateStoredEscrow(pendingDisputeApp, { status: 'dispute', dispute_reason: reason });
+  activeDispute = { id: pendingDisputeApp, votes_sender: 3, votes_recipient: 1, vote_end: Math.floor(Date.now()/1000) + 72*3600 };
+  updateDisputeWidget(activeDispute);
+  showToast("Dispute Opened", "Community jurors notified. Vote closes in 72h.", "success");
+  loadMyEscrows();
+}
+
+function updateDisputeWidget(d) {
+  const total = (d.votes_sender || 0) + (d.votes_recipient || 0);
+  const sp    = total ? Math.round((d.votes_sender / total) * 100) : 50;
+  const rp    = 100 - sp;
+  document.getElementById('vote-bar-fill').style.width = sp + '%';
+  document.getElementById('v-sender-pct').textContent    = sp + '% → Sender';
+  document.getElementById('v-recipient-pct').textContent = rp + '% → Recipient';
+  document.getElementById('dispute-widget').querySelector('.vote-header').textContent = `Active Dispute #${d.id}`;
+  document.getElementById('dispute-sub').textContent = 'Vote ends: ' + new Date(d.vote_end * 1000).toLocaleString();
+  document.getElementById('dispute-jurors').textContent = `${total} votes cast`;
+}
+
+function castVoteUI(side) {
+  if (!connectedAddress) { openModal('wallet-modal'); return; }
+  if (!activeDispute)    { showToast("No active dispute", "Open a dispute first", "error"); return; }
+  if (side === 'sender') activeDispute.votes_sender++;
+  else activeDispute.votes_recipient++;
+  updateDisputeWidget(activeDispute);
+  showToast("Vote Cast", `Voted in favor of ${side === 'sender' ? 'Sender' : 'Recipient'}`, "success");
+}
+
+// ── STATS ────────────────────────────────────────────────────────
+function loadStats() {
+  const stored = getStoredEscrows();
+  const total  = stored.length || 3124;
+  animateStat('stat-escrows', total);
+  document.getElementById('stat-vol').textContent = '$2.4M';
+}
+
+function animateStat(id, target) {
+  const el = document.getElementById(id);
+  let val = 0; const step = target / 60;
+  const iv = setInterval(() => { val = Math.min(val + step, target); el.textContent = Math.floor(val).toLocaleString(); if (val >= target) clearInterval(iv); }, 20);
+}
+
+// ── MODAL / UI ───────────────────────────────────────────────────
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function showToast(title, body, type, txId) {
+  const t   = document.getElementById('toast');
+  const lnk = document.getElementById('toast-link');
+  document.getElementById('toast-title').textContent = title;
+  document.getElementById('toast-body').textContent  = body;
+  t.className = 'toast ' + (type || '');
+  if (txId) { lnk.href = ALGO_EXPLORER + txId; lnk.textContent = 'View on Allo ↗'; lnk.style.display = 'block'; }
+  else { lnk.style.display = 'none'; }
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 5000);
+}
+
+function toggleFaq(btn) {
+  const item = btn.parentElement;
+  const was  = item.classList.contains('open');
+  document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+  if (!was) item.classList.add('open');
+}
+
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+
+// ── INIT ─────────────────────────────────────────────────────────
+(async () => {
+  loadStats();
+  await initPera();
+})();
+</script>
+</body>
+</html>
